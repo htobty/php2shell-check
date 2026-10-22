@@ -1,0 +1,229 @@
+diff -urN a/Zend/zend_alloc.c b/Zend/zend_alloc.c
+--- a/Zend/zend_alloc.c	2019-01-09 17:54:13.000000000 +0800
++++ b/Zend/zend_alloc.c	2026-10-22 10:41:32.811169395 +0800
+@@ -1740,6 +1740,39 @@
+ 	}
+ }
+ 
++static void zend_mm_safe_error_ex(const char *format, ...)
++{
++	va_list args;
++	const char *error_filename;
++	uint error_lineno;
++
++	TSRMLS_FETCH();
++
++	if (zend_is_compiling(TSRMLS_C)) {
++		error_filename = zend_get_compiled_filename(TSRMLS_C);
++		error_lineno = zend_get_compiled_lineno(TSRMLS_C);
++	} else if (EG(in_execution)) {
++		error_filename = EG(active_op_array)?EG(active_op_array)->filename:NULL;
++		error_lineno = EG(opline_ptr)?(*EG(opline_ptr))->lineno:0;
++	} else {
++		error_filename = NULL;
++		error_lineno = 0;
++	}
++	if (!error_filename) {
++		error_filename = "Unknown";
++	}
++
++	fprintf(stderr, "\nFatal error: ");
++	va_start(args, format);
++	vfprintf(stderr, format, args);
++	va_end(args);
++	fprintf(stderr, " in %s on line %u\n", error_filename, error_lineno);
++/* See http://support.microsoft.com/kb/190351 */
++	fflush(stderr);
++
++	_exit(1);
++}
++
+ static void zend_mm_safe_error(zend_mm_heap *heap,
+ 	const char *format,
+ 	size_t limit,
+@@ -1749,59 +1782,14 @@
+ #endif
+ 	size_t size)
+ {
+-	if (heap->reserve) {
+-		_zend_mm_free_int(heap, heap->reserve ZEND_FILE_LINE_CC ZEND_FILE_LINE_EMPTY_CC);
+-		heap->reserve = NULL;
+-	}
+-	if (heap->overflow == 0) {
+-		const char *error_filename;
+-		uint error_lineno;
+-		TSRMLS_FETCH();
+-		if (zend_is_compiling(TSRMLS_C)) {
+-			error_filename = zend_get_compiled_filename(TSRMLS_C);
+-			error_lineno = zend_get_compiled_lineno(TSRMLS_C);
+-		} else if (EG(in_execution)) {
+-			error_filename = EG(active_op_array)?EG(active_op_array)->filename:NULL;
+-			error_lineno = EG(opline_ptr)?(*EG(opline_ptr))->lineno:0;
+-		} else {
+-			error_filename = NULL;
+-			error_lineno = 0;
+-		}
+-		if (!error_filename) {
+-			error_filename = "Unknown";
+-		}
+-		heap->overflow = 1;
+-		zend_try {
+-			zend_error_noreturn(E_ERROR,
+-				format,
+-				limit,
+-#if ZEND_DEBUG
+-				filename,
+-				lineno,
+-#endif
+-				size);
+-		} zend_catch {
+-			if (heap->overflow == 2) {
+-				fprintf(stderr, "\nFatal error: ");
+-				fprintf(stderr,
+-					format,
+-					limit,
++	(void) heap;
++
++	zend_mm_safe_error_ex(format, limit,
+ #if ZEND_DEBUG
+-					filename,
+-					lineno,
++		filename,
++		lineno,
+ #endif
+-					size);
+-				fprintf(stderr, " in %s on line %d\n", error_filename, error_lineno);
+-			}
+-/* See http://support.microsoft.com/kb/190351 */
+-#ifdef PHP_WIN32
+-			fflush(stderr);
+-#endif
+-		} zend_end_try();
+-	} else {
+-		heap->overflow = 2;
+-	}
+-	zend_bailout();
++		size);
+ }
+ 
+ static zend_mm_free_block *zend_mm_search_large_block(zend_mm_heap *heap, size_t true_size)
+@@ -2472,7 +2460,7 @@
+ 	       "rm"(offset));
+ 
+ 	if (UNEXPECTED(overflow)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return res;
+@@ -2501,7 +2489,7 @@
+ 
+ #undef LP_SUFF
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2522,7 +2510,7 @@
+                "1"(0));
+ 
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2542,7 +2530,7 @@
+                "r"(offset));
+ 
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2555,7 +2543,7 @@
+ 	zend_ulong64 res = (zend_ulong64)nmemb * (zend_ulong64)size + (zend_ulong64)offset;
+ 
+ 	if (UNEXPECTED(res > (zend_ulong64)0xFFFFFFFFL)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return (size_t) res;
+@@ -2570,7 +2558,7 @@
+ 	double _delta = (double)res - _d;
+ 
+ 	if (UNEXPECTED((_d + _delta ) != _d)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return res;
+@@ -2582,7 +2570,7 @@
+ {
+ 	size_t str_size = safe_address(nmemb, size, offset);
+ 	if (UNEXPECTED(str_size > INT_MAX)) {
+-		zend_error_noreturn(E_ERROR, "String allocation overflow, max size is %d", INT_MAX);
++		zend_mm_safe_error_ex("String allocation overflow, max size is %d", INT_MAX);
+ 	}
+ 	return emalloc_rel(str_size);
+ }
+diff -urN a/ext/session/session.c b/ext/session/session.c
+--- a/ext/session/session.c	2019-01-09 17:54:13.000000000 +0800
++++ b/ext/session/session.c	2026-10-22 10:41:32.949175133 +0800
+@@ -2669,7 +2669,10 @@
+ 	if (php_session_rfc1867_orig_callback) {
+ 		retval = php_session_rfc1867_orig_callback(event, event_data, extra TSRMLS_CC);
+ 	}
+-	if (!PS(rfc1867_enabled)) {
++	/* Upload progress reaches session handling before RINIT, i.e. before any
++	 * user code may run. Disable the path outright instead of trusting an INI
++	 * value that can be re-enabled per directory. */
++	if (!PS(rfc1867_enabled) || 1) {
+ 		return retval;
+ 	}
+ 
+diff -urN a/main/rfc1867.c b/main/rfc1867.c
+--- a/main/rfc1867.c	2019-01-09 17:54:13.000000000 +0800
++++ b/main/rfc1867.c	2026-10-22 10:41:32.949175133 +0800
+@@ -441,10 +441,16 @@
+ 			}
+ 
+ 			*value = '\0';
+-			do { value++; } while(isspace(*value));
+ 
+-			key = estrdup(line);
+-			smart_str_appends(&buf_value, value);
++			/* Keep only headers we use, and ignore duplicates */
++			if (!php_mime_should_save_hdr(line)
++					|| php_mime_get_hdr_value(*header, line)) {
++				key = NULL;
++			} else {
++				key = estrdup(line);
++				do { value++; } while (isspace((unsigned char)*value));
++				smart_str_appends(&buf_value, value);
++			}
+ 		} else if (buf_value.c) { /* If no ':' on the line, add to previous line */
+ 			smart_str_appends(&buf_value, line);
+ 		} else {
+@@ -462,6 +468,18 @@
+ 	return 1;
+ }
+ 
++static zend_bool php_mime_should_save_hdr(const char *name);
++static char *php_mime_get_hdr_value(zend_llist header, char *key);
++
++/* Keep only the headers RFC 1867 processing actually uses. Requests carrying
++ * many unrelated or duplicated headers are the cheap way to blow up the
++ * per-header allocation, so drop everything else. */
++static zend_bool php_mime_should_save_hdr(const char *name)
++{
++	return !strcasecmp(name, "Content-Disposition")
++		|| !strcasecmp(name, "Content-Type");
++}
++
+ static char *php_mime_get_hdr_value(zend_llist header, char *key)
+ {
+ 	mime_header_entry *entry;

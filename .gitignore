@@ -1,0 +1,23 @@
+# 编译产物
+*.o
+*.lo
+*.la
+*.so
+*.a
+*.pyc
+__pycache__/
+sapi/cli/php
+sapi/cgi/php-cgi
+
+# 实验临时文件
+/tmp/
+*.log
+sess_*
+/tmp/RESULT*.txt
+/tmp/BASE_DONE
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store

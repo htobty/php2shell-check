@@ -1,0 +1,108 @@
+diff --git a/Zend/zend_alloc.c b/Zend/zend_alloc.c
+index 2521689..ca9b36a 100644
+--- a/Zend/zend_alloc.c
++++ b/Zend/zend_alloc.c
+@@ -361,6 +361,34 @@ static ZEND_COLD ZEND_NORETURN void zend_mm_panic(const char *message)
+ 	exit(1);
+ }
+ 
++static void zend_mm_safe_error_ex(const char *format, ...)
++{
++	va_list args;
++	const char *error_filename = NULL;
++	uint lineno = 0;
++
++	if (zend_is_compiling()) {
++		error_filename = zend_get_compiled_filename();
++		lineno = zend_get_compiled_lineno();
++	} else if (EG(current_execute_data) && EG(current_execute_data)->func) {
++		error_filename = EG(current_execute_data)->func->op_array.filename;
++		if (EG(current_execute_data)->opline) {
++			lineno = EG(current_execute_data)->opline->lineno;
++		}
++	}
++	if (!error_filename) {
++		error_filename = "Unknown";
++	}
++
++	fprintf(stderr, "\nFatal error: ");
++	va_start(args, format);
++	vfprintf(stderr, format, args);
++	va_end(args);
++	fprintf(stderr, " in %s on line %u\n", error_filename, (unsigned) lineno);
++	fflush(stderr);
++	_exit(1);
++}
++
+ static ZEND_COLD ZEND_NORETURN void zend_mm_safe_error(zend_mm_heap *heap,
+ 	const char *format,
+ 	size_t limit,
+@@ -370,21 +398,8 @@ static ZEND_COLD ZEND_NORETURN void zend_mm_safe_error(zend_mm_heap *heap,
+ #endif
+ 	size_t size)
+ {
+-
+-	heap->overflow = 1;
+-	zend_try {
+-		zend_error_noreturn(E_ERROR,
+-			format,
+-			limit,
+-#if ZEND_DEBUG
+-			filename,
+-			lineno,
+-#endif
+-			size);
+-	} zend_catch {
+-	}  zend_end_try();
+-	heap->overflow = 0;
+-	zend_bailout();
++	(void) heap;
++	zend_mm_safe_error_ex(format, limit, size);
+ 	exit(1);
+ }
+ 
+@@ -1352,7 +1367,7 @@ static zend_always_inline void *zend_mm_alloc_heap(zend_mm_heap *heap, size_t si
+ 	size = MAX(size, 1);
+ 	size = ZEND_MM_ALIGNED_SIZE(size) + ZEND_MM_ALIGNED_SIZE(sizeof(zend_mm_debug_info));
+ 	if (UNEXPECTED(size < real_size)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu + %zu)", ZEND_MM_ALIGNED_SIZE(real_size), ZEND_MM_ALIGNED_SIZE(sizeof(zend_mm_debug_info)));
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu + %zu)", ZEND_MM_ALIGNED_SIZE(real_size), ZEND_MM_ALIGNED_SIZE(sizeof(zend_mm_debug_info)));
+ 		return NULL;
+ 	}
+ #endif
+@@ -1800,7 +1815,7 @@ static void *zend_mm_alloc_huge(zend_mm_heap *heap, size_t size ZEND_FILE_LINE_D
+ 	void *ptr;
+ 
+ 	if (UNEXPECTED(new_size < size)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu + %zu)", size, alignment);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu + %zu)", size, alignment);
+ 	}
+ 
+ #if ZEND_MM_LIMIT
+@@ -2596,7 +2611,7 @@ ZEND_API char* ZEND_FASTCALL _estrdup(const char *s ZEND_FILE_LINE_DC ZEND_FILE_
+ 
+ 	length = strlen(s);
+ 	if (UNEXPECTED(length + 1 == 0)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (1 * %zu + 1)", length);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (1 * %zu + 1)", length);
+ 	}
+ 	p = (char *) _emalloc(length + 1 ZEND_FILE_LINE_RELAY_CC ZEND_FILE_LINE_ORIG_RELAY_CC);
+ 	memcpy(p, s, length+1);
+@@ -2608,7 +2623,7 @@ ZEND_API char* ZEND_FASTCALL _estrndup(const char *s, size_t length ZEND_FILE_LI
+ 	char *p;
+ 
+ 	if (UNEXPECTED(length + 1 == 0)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (1 * %zu + 1)", length);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (1 * %zu + 1)", length);
+ 	}
+ 	p = (char *) _emalloc(length + 1 ZEND_FILE_LINE_RELAY_CC ZEND_FILE_LINE_ORIG_RELAY_CC);
+ 	memcpy(p, s, length);
+@@ -2622,7 +2637,7 @@ ZEND_API char* ZEND_FASTCALL zend_strndup(const char *s, size_t length)
+ 	char *p;
+ 
+ 	if (UNEXPECTED(length + 1 == 0)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (1 * %zu + 1)", length);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (1 * %zu + 1)", length);
+ 	}
+ 	p = (char *) malloc(length + 1);
+ 	if (UNEXPECTED(p == NULL)) {
